@@ -137,3 +137,99 @@ pub fn set_slow_device_micro_watt(power_micro_watt: u32) -> Result<(), String>{
 pub fn set_fast_device_micro_watt(power_micro_watt: u32) -> Result<(), String>{
 	return set_device_micro_watt(DeviceType::Fast, power_micro_watt);
 }
+
+
+pub struct BacklightDevice{
+	pub path:String,
+	pub max_brightness:u32
+}
+
+pub fn probe_backlight_device() -> Result<BacklightDevice, String>{
+	let re = regex::Regex::new("^/sys/class/backlight/amdgpu_bl[0-9]+$").unwrap();
+	let path_obj = std::path::Path::new("/sys/class/backlight");
+
+	match path_obj.read_dir(){
+		Ok(read_dir) => {
+			for entry in read_dir{
+				match entry{
+					Ok(dir_entry) => {
+						let path = format!("{}", dir_entry.path().display());
+						if re.is_match(&path){
+							let brightness_path = format!("{}/brightness", path);
+							if !std::path::Path::new(&brightness_path).exists(){
+								return Err(format!("{} has no brightness node", path))
+							}
+							let max_brightness_path = format!("{}/max_brightness", path);
+							let max_brightness_bytes = match std::fs::read(&max_brightness_path){
+								Ok(b) => b,
+								Err(e) => {
+									return Err(format!("Failed reading {}, {}", max_brightness_path, e));
+								}
+							};
+							let max_brightness_string = match std::string::String::from_utf8(max_brightness_bytes){
+								Ok(s) => s,
+								Err(e) => {
+									return Err(format!("Failed parsing {} as string, {}", max_brightness_path, e));
+								}
+							};
+							let max_brightness = match max_brightness_string.trim().parse::<u32>(){
+								Ok(m) => m,
+								Err(e) => {
+									return Err(format!("Failed parsing {} as u32, {}", max_brightness_path, e));
+								}
+							};
+							return Ok(
+								BacklightDevice{
+									path:brightness_path,
+									max_brightness:max_brightness,
+								}
+							);
+						}
+					},
+					Err(e) => {
+						return Err(format!("Failed enumerating content of {}, {}", path_obj.display(), e));
+					}
+				}
+			}
+			return Err(format!("amdgpu backlight not found"))
+		},
+		Err(e) => {
+			return Err(format!("Failed enumerating content of {}, {}", path_obj.display(), e));
+		}
+	}
+}
+
+pub fn get_brightness(device: &BacklightDevice) -> Result<u32, String>{
+	let brightness_bytes = match std::fs::read(&device.path){
+		Ok(b) => b,
+		Err(e) => {
+			return Err(format!("Failed reading {}, {}", device.path, e));
+		}
+	};
+	let brightness_string = match std::string::String::from_utf8(brightness_bytes){
+		Ok(s) => s,
+		Err(e) => {
+			return Err(format!("Failed parsing {} as string, {}", device.path, e));
+		}
+	};
+	let brightness = match brightness_string.trim().parse::<u32>(){
+		Ok(m) => m,
+		Err(e) => {
+			return Err(format!("Failed parsing {} as u32, {}", device.path, e));
+		}
+	};
+	return Ok(brightness);
+}
+
+pub fn set_brightness(device: &BacklightDevice, brightness:u32) -> Result<(), String>{
+	if brightness > device.max_brightness{
+		return Err(format!("Desired brightness {} is bigger than max brightness {}", brightness, device.max_brightness));
+	}
+	match std::fs::write(&device.path, format!("{}", brightness)){
+		Ok(_) => {},
+		Err(e) => {
+			return Err(format!("Failed writing to {}, {}", device.path, e));
+		}
+	}
+	return Ok(());
+}

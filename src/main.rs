@@ -13,6 +13,12 @@ struct TdpSlider{
 	tdp_range: iced_audio::IntRange,
 	slider_tick_marks:iced_audio::tick_marks::Group,
 	slider_text_marks:iced_audio::text_marks::Group,
+
+	backlight_brightness_range: iced_audio::IntRange,
+	backlight_brightness:u32,
+	backlight_device: operations::BacklightDevice,
+	backlight_brightness_tick_marks:iced_audio::tick_marks::Group,
+	backlight_brightness_text_marks:iced_audio::text_marks::Group,
 }
 
 #[derive(Debug, Clone)]
@@ -20,6 +26,7 @@ enum Message{
 	Event(iced::Event),
 	ChangeFastTdpWatt(iced_audio::Normal),
 	ChangeSlowTdpWatt(iced_audio::Normal),
+	ChangeBrightness(iced_audio::Normal),
 	Close,
 }
 
@@ -35,6 +42,11 @@ impl iced::Application for TdpSlider{
 		let tdp_range = iced_audio::IntRange::new(3, 15);
 		let slider_tick_marks = iced_audio::tick_marks::Group::evenly_spaced(15 - 3 + 1, iced_audio::native::tick_marks::Tier::Three);
 		let slider_text_marks = iced_audio::text_marks::Group::min_max_and_center("3", "15", "9");
+		let backlight_device = operations::probe_backlight_device().unwrap();
+		let backlight_brightness = operations::get_brightness(&backlight_device).unwrap();
+		let backlight_brightness_range = iced_audio::IntRange::new(0, i32::try_from(backlight_device.max_brightness).unwrap());
+		let backlight_brightness_tick_marks = iced_audio::tick_marks::Group::min_max(iced_audio::native::tick_marks::Tier::Three);
+		let backlight_brightness_text_marks = iced_audio::text_marks::Group::min_max("0", &format!("{}", backlight_device.max_brightness));
 		return (
 			TdpSlider{
 				slow_tdp_micro_watt:slow_tdp_micro_watt,
@@ -42,6 +54,11 @@ impl iced::Application for TdpSlider{
 				tdp_range:tdp_range,
 				slider_tick_marks:slider_tick_marks,
 				slider_text_marks:slider_text_marks,
+				backlight_device:backlight_device,
+				backlight_brightness:backlight_brightness,
+				backlight_brightness_range:backlight_brightness_range,
+				backlight_brightness_tick_marks:backlight_brightness_tick_marks,
+				backlight_brightness_text_marks:backlight_brightness_text_marks,
 			},
 			iced::Command::none()
 		)
@@ -63,6 +80,7 @@ impl iced::Application for TdpSlider{
 							iced::window::Event::Focused => {
 								self.slow_tdp_micro_watt = operations::get_slow_device_micro_watt().unwrap();
 								self.fast_tdp_micro_watt = operations::get_fast_device_micro_watt().unwrap();
+								self.backlight_brightness = operations::get_brightness(&self.backlight_device).unwrap();
 							},
 							_ => {},
 						}
@@ -91,6 +109,10 @@ impl iced::Application for TdpSlider{
 				self.fast_tdp_micro_watt = u32::try_from(self.tdp_range.unmap_to_value(tdp_watt)).unwrap() * 1000000;
 				operations::set_fast_device_micro_watt(self.fast_tdp_micro_watt).unwrap();
 			},
+			Message::ChangeBrightness(brightness) => {
+				self.backlight_brightness = u32::try_from(self.backlight_brightness_range.unmap_to_value(brightness)).unwrap();
+				operations::set_brightness(&self.backlight_device, self.backlight_brightness).unwrap();
+			}
 			Message::Close => {
 				std::process::exit(0);
 			}
@@ -105,6 +127,7 @@ impl iced::Application for TdpSlider{
 	fn view(&self) -> iced::Element<Message>{
 		let slow_slider_param = self.tdp_range.normal_param(i32::try_from(self.slow_tdp_micro_watt / 1000000).unwrap(), 15);
 		let fast_slider_param = self.tdp_range.normal_param(i32::try_from(self.fast_tdp_micro_watt / 1000000).unwrap(), 15);
+		let backlight_brightness_slider_param = self.backlight_brightness_range.normal_param(i32::try_from(self.backlight_brightness).unwrap(), 0);
 		column![
 			/* does not work with wgpu
 			column![row![
@@ -126,6 +149,14 @@ impl iced::Application for TdpSlider{
 					vertical_space(8),
 					HSlider::new(fast_slider_param, Message::ChangeFastTdpWatt).tick_marks(&self.slider_tick_marks).text_marks(&self.slider_text_marks)
 				]
+			],
+			vertical_space(16),
+			row![
+				column![
+					text(format!("Backlight brightness: {}", self.backlight_brightness)),
+					vertical_space(8),
+					HSlider::new(backlight_brightness_slider_param, Message::ChangeBrightness).tick_marks(&self.backlight_brightness_tick_marks).text_marks(&self.backlight_brightness_text_marks)
+				]
 			]
 		].align_items(Alignment::Start)
 		.padding(10)
@@ -142,7 +173,7 @@ fn main() {
 
 	let mut settings = iced::Settings::default();
 	settings.window.resizable = false;
-	settings.window.size = (400, 150);
+	settings.window.size = (400, 200);
 	/* does not work with wgpu
 	settings.window.decorations = false;
 	settings.window.transparent = true;
