@@ -1,0 +1,5 @@
+[Desktop Entry]
+Type=Application
+Name=Steam Deck TDP Slider
+Exec=/usr/bin/deck_tdp_slider
+Icon=preferences-system
